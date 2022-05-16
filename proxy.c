@@ -62,7 +62,7 @@ void doit(int fd) {
     char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE]; /* buf: request 헤더 정보 담을 공간*/
     char endserver_http_header[MAXLINE];                                /* 서버에 보낼 헤더 정보를 담을 공간 */
     char hostname[MAXLINE], path[MAXLINE];                              /* hostname: IP담을 공간, path: 경로 담을 공간 */
-    rio_t rio, server_rio;                                              /* rio: proxy rio 구조체, server_rio: client의 rio 구조체 */
+    rio_t rio, server_rio;                                              /* rio: client rio 구조체, server_rio: proxy의 rio 구조체 */
     int port;                                                           /* port 담을 변수 */
 
     Rio_readinitb(&rio, fd);                                            /* rio 구조체 초기화 */
