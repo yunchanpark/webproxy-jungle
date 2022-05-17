@@ -23,6 +23,11 @@ void doit(int fd);
 void parse_uri(char *uri,char *hostname,char *path,int *port);
 void build_http_header(char *http_header,char *hostname,char *path,int port,rio_t *client_rio);
 int connect_endServer(char *hostname,int port,char *http_header);
+void *thread(void *vargsp);
+
+/* end server info(브라우저 테스트를 위한) */
+// static const char *end_server_host = "localhost";   /* end server의 hostname은 현재 localhost */
+// static const int end_server_port = 9190;            /* proxy 서버의 소켓 번호 +1 */
 
 /*
 * argc: 메인 함수에 전달 되는 데이터의 수
@@ -39,6 +44,7 @@ int main(int argc, char **argv) {
     char hostname[MAXLINE], port[MAXLINE]; /* hostname: 접속한 클라이언트 ip, port: 접속한 클라이언트 port */
     socklen_t clientlen;                   /* socklen_t 는 소켓 관련 매개 변수에 사용되는 것으로 길이 및 크기 값에 대한 정의를 내려준다 */
     struct sockaddr_storage clientaddr;    /* 어떤 타입의 소켓 구조체가 들어올지 모르기 때문에 충분히 큰 소켓 구조체로 선언 */
+    // pthread_t tid;
 
     /* listenfd: 이 포트에 대한 듣기 소켓 오픈 */
     listenfd = Open_listenfd(argv[1]);
@@ -49,14 +55,24 @@ int main(int argc, char **argv) {
         Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0); /* clientaddr: SA 구조체로 형변환, 소켓 정보를 가져옴 */
         printf("Accepted connection from (%s, %s)\n", hostname, port);                  /* 어떤 주소와 포트 번호를 가진 client가 들어왔는지 print */
         
+        // Prhread_create(&tid, NULL, thread, (void *)connfd);
+
         doit(connfd);                                                                   /* 트랜잭션 수행 */
+        
         /* 연결이 끝났다고 print 하고 식별자(파일 디스크립트)를 닫아줌 */
-        printf("endoffile\n");
-        Close(connfd);
+        // printf("endoffile\n");
+        // Close(connfd);
     }
 }
 
-void doit(int fd) {
+// void *thread(void *vargs) {
+//     int connfd = *((int *)vargs);
+//     Pthread_detach(pthread_self());
+//     doit(connfd);
+//     Close(connfd);
+// }
+
+void doit(int connfd) {
     int end_serverfd;
 
     char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE]; /* buf: request 헤더 정보 담을 공간*/
@@ -65,7 +81,7 @@ void doit(int fd) {
     rio_t rio, server_rio;                                              /* rio: client rio 구조체, server_rio: proxy의 rio 구조체 */
     int port;                                                           /* port 담을 변수 */
 
-    Rio_readinitb(&rio, fd);                                            /* rio 구조체 초기화 */
+    Rio_readinitb(&rio, connfd);                                            /* rio 구조체 초기화 */
     Rio_readlineb(&rio, buf, MAXLINE);                                  /* buf에 fd에서 읽을 값이 담김 */
     sscanf(buf, "%s %s %s", method, uri, version);                      /* sscanf는 첫 번째 매개 변수가 우리가 입력한 문자열, 두 번째 매개 변수 포맷, 나머지 매개 변수에 포맷에 맞게 데이터를 읽어서 인수들에 저장 */
 
@@ -97,7 +113,7 @@ void doit(int fd) {
     size_t n;
     while((n = rio_readlineb(&server_rio, buf, MAXLINE)) != 0) {
         printf("proxy received %ld bytes,then send\n",n);
-        Rio_writen(fd, buf, n);
+        Rio_writen(connfd, buf, n);
     }
     /* end_serverfd 닫기 */
     Close(end_serverfd);
@@ -105,17 +121,11 @@ void doit(int fd) {
 
 /* ip 정보와 경로와 port번호 세팅해줄 함수 */
 void parse_uri(char *uri, char *hostname, char *path, int *port) {
-
-    /* 브라우저에서도 접속 해보고 싶어서 만듬 */
-    /* 브라우저로 요청시 앞에 도메인을 짤려나가서 그냥 접속했을 때는 '/'문자 하나만 오기 때문에 114번줄에서 오류 따라서 /의 실제 경로를 써줌 */
-    // if (uri[strlen(uri) - 1] == '/') {
-    //     sscanf("/home.html", "%s", uri);
-    // }
-
     char* pos = strstr(uri,"//");                   /* "http://"가 있으면 //부터 return */
     pos = pos != NULL? pos+2:uri;                   /* "//~~~~" 이렇게 나오니깐 + 2해서 ip가 시작하는 위치로 포인터 이동, 없으면 그냥 uri */
     char *pos2 = strstr(pos, ":");;                 /* ':'뒤에는 port랑 path가 있음 */
-    *port = 80;                                     /* 기본 port*/
+    // *port = end_server_port;                        /* 기본 port*/
+    *port = 80;
 
     /* port가 있으면*/
     if(pos2 != NULL) {
@@ -138,6 +148,11 @@ void parse_uri(char *uri, char *hostname, char *path, int *port) {
             sscanf(pos, "%s", hostname);            /* pos에서 문자열 포맷으로 ip를 hostname에 담음 */
         }
     }
+
+    // /* host명이 없는 경우(브라우저 테스트를 위함) */
+    // if (strlen(hostname) == 0) {
+    //     strcpy(hostname, end_server_host);
+    // }
     return;
 }
 
@@ -190,8 +205,4 @@ int connect_endServer(char *hostname, int port, char *http_header) {
     char portStr[100];
     sprintf(portStr, "%d", port);
     return Open_clientfd(hostname, portStr);
-    
-    /* 브라우저에서도 접속 해보고 싶어서 만듬 */
-    // sprintf(portStr, "%d", 9190);
-    // return Open_clientfd("52.79.233.155", portStr);
 }
