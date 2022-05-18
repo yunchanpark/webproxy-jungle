@@ -72,7 +72,7 @@ int main(int argc, char **argv) {
         Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0); /* clientaddr: SA 구조체로 형변환, 소켓 정보를 가져옴 */
         printf("Accepted connection from (%s, %s)\n", hostname, port);                  /* 어떤 주소와 포트 번호를 가진 client가 들어왔는지 print */
         
-        Pthread_create(&tid, NULL, thread, connfd);
+        Pthread_create(&tid, NULL, thread, connfd);                                     /* thread 생성 */
 
         // doit(connfd);                                                                /* 트랜잭션 수행 */
         
@@ -83,18 +83,18 @@ int main(int argc, char **argv) {
 }
 
 void *thread(void *vargp) {
-    int connfd = *((int *)vargp);
-    Pthread_detach(pthread_self());
-    free(vargp);
-    doit(connfd);
-    Close(connfd);
+    int connfd = *((int *)vargp);   /* client와 proxy가 연결되어 있는 식별자 */
+    Pthread_detach(pthread_self()); /* thread 분리 */
+    free(vargp);                    /* 공간 할당 해제 */
+    doit(connfd);                   /* 트렌잭션 수행 */
+    Close(connfd);                  /* 식별자 닫기 */
     return NULL;
 }
 
 void doit(int connfd) {
-    int end_serverfd;
-    char content_buf[MAX_OBJECT_SIZE];
-    char url[MAXLINE];
+    int end_serverfd;                                                   /* 끝 서버 fd */
+    char content_buf[MAX_OBJECT_SIZE];                                  /* cache에 쓸 내용을 담은 버퍼 */
+    char url[MAXLINE];                                                  /*  */
     char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE]; /* buf: request 헤더 정보 담을 공간*/
     char endserver_http_header[MAXLINE];                                /* 서버에 보낼 헤더 정보를 담을 공간 */
     char hostname[MAXLINE], path[MAXLINE];                              /* hostname: IP담을 공간, path: 경로 담을 공간 */
@@ -102,10 +102,10 @@ void doit(int connfd) {
     int port;                                                           /* port 담을 변수 */
 
 
-    Rio_readinitb(&rio, connfd);                                            /* rio 구조체 초기화 */
+    Rio_readinitb(&rio, connfd);                                        /* rio 구조체 초기화 */
     Rio_readlineb(&rio, buf, MAXLINE);                                  /* buf에 fd에서 읽을 값이 담김 */
     sscanf(buf, "%s %s %s", method, uri, version);                      /* sscanf는 첫 번째 매개 변수가 우리가 입력한 문자열, 두 번째 매개 변수 포맷, 나머지 매개 변수에 포맷에 맞게 데이터를 읽어서 인수들에 저장 */
-    strcpy(url, uri);
+    strcpy(url, uri);                                                   /* url에 uri 복사 */
 
     /* GET이나 HEAD가 아닐 때 error 메시지 출력 */
     if (strcasecmp(method, "GET")) {
@@ -137,18 +137,19 @@ void doit(int connfd) {
     Rio_writen(end_serverfd, endserver_http_header, strlen(endserver_http_header));
 
     /* server_rio의 내부 버퍼에 담긴 내용을 buf에 담고 클라이언트와 proxy에 연결되어 있는 식별자에 buf에 담긴 내용을 씀 */
-    size_t n;
-    int total_size = 0;
+    size_t n;                                                       /* server_rio에서 읽은 바이트 수 */
+    int total_size = 0;                                             /* cache에 담을 바이트 수 */
     while((n = rio_readlineb(&server_rio, buf, MAXLINE)) != 0) {
         printf("proxy received %ld bytes,then send\n",n);
         Rio_writen(connfd, buf, n);
-        /* cache content의 최대 크기를 넘지 않으면 */
+        /* cache content의 최대 크기를 넘지 않으면 content_buf에 담음 */
         if (total_size + n < MAX_OBJECT_SIZE) {
             strcpy(content_buf + total_size, buf);
         }
         total_size += n;
     }
 
+    /* cache content의 최대 크기를 넘지 않았다면 cache에 쓰기 */
     if(total_size < MAX_OBJECT_SIZE) {
         writer(url, content_buf);
     }
@@ -245,39 +246,43 @@ int connect_endServer(char *hostname, int port) {
     return Open_clientfd(hostname, portStr);
 }
 
+/* cache 초기화 */
 void init_cache() {
     Sem_init(&mutex, 0, 1);
     Sem_init(&w, 0, 1);
     readcnt = 0;
-    cache = (Cache_info *)Malloc(sizeof(Cache_info) * 10);
+    cache = (Cache_info *)Malloc(sizeof(Cache_info) * 10);                  /* 캐시의 최대 크기는 1MB이고 캐시의 객체는 최대 크기가 100KB이라서 10개의 공간을 잡음 */
     for (int i = 0; i < 10; i++) {
-        cache[i].url = (char *)Malloc(sizeof(char) * 256);
-        cache[i].flag = (int *)Malloc(sizeof(int));
-        cache[i].cnt = (int *)Malloc(sizeof(int));
-        cache[i].content = (char *)Malloc(sizeof(char) * MAX_OBJECT_SIZE);
-        *(cache[i].flag) = 0;
-        *(cache[i].cnt) = 0;
+        cache[i].url = (char *)Malloc(sizeof(char) * 256);                  /* url 공간을 256바이트 할당 */
+        cache[i].flag = (int *)Malloc(sizeof(int));                         /* flag 공간을 4바이트 할당 */
+        cache[i].cnt = (int *)Malloc(sizeof(int));                          /* cnt 공간을 4바이트 할당 */
+        cache[i].content = (char *)Malloc(sizeof(char) * MAX_OBJECT_SIZE);  /* content의 공간을 100KB 할당 */
+        *(cache[i].flag) = 0;                                               /* flag 0으로 설정, 즉, 비어있다는 뜻 */
+        *(cache[i].cnt) = 1;                                                /* cnt 0으로 설정, 최근에 찾은 것일 수록 0이랑 가까움 */
     }
 }
 
+/* cache에서 요청한 url 있는지 찾기 */
 int reader(int connfd, char *url) {
-    int return_flag = 0;
-    P(&mutex);
+    int return_flag = 0;    /* 캐시에서 찾았으면 1, 못찾으면 0 */
+    P(&mutex);              
     readcnt++;
     if(readcnt == 1) {
         P(&w);
     }
     V(&mutex);
 
+    /* cache를 다 돌면서 cache에 써있고 cache의 url과 현재 요청한 url이 같으면 client fd에 cache의 내용 쓰고 해당 cache의 cnt를 0으로 초기화 후 break */
     for(int i = 0; i < 10; i++) {
         if(*(cache[i].flag) == 1 && !strcmp(cache[i].url, url)) {
             Rio_writen(connfd, cache[i].content, MAX_OBJECT_SIZE);
             return_flag = 1;
-            *(cache[i].cnt) = 0;
+            *(cache[i].cnt) = 1;
             break;
         }
     }    
     
+    /* 모든 cache객체의 cnt를 하나씩 올려줌, 즉, 방문안한 일수를 올려줌 */
     for(int i = 0; i < 10; i++) {
         (*(cache[i].cnt))++;
     }
@@ -292,37 +297,27 @@ int reader(int connfd, char *url) {
 }
 
 void writer(char *url, char *buf) {
-    int cache_cnt = 0;
     P(&w);
 
+    int idx = 0;                        /* 작성할 곳을 가리키는 index */
+    int max_cnt = 0;                    /* 가장 오래 방문 안한 일수 */
+
+    /* 10개의 cache를 돌고 만약 비어있는 곳이 있으면 비어있는 곳에 index를 찾고, 없으면 가장 오래 방문 안한 곳의 index 찾기 */
     for(int i = 0; i < 10; i++) {
-        if(*(cache[i].flag) == 1 && !strcmp(cache[i].url, url)) {
-            cache_cnt = 1;
-            *(cache[i].cnt) = 0;
+        if(*(cache[i].flag) == 0) {
+            idx = i;
             break;
         }
-    }
-
-    if(cache_cnt == 0) {
-        int idx = 0;
-        int max_cnt = 0;
-        for(int i = 0; i < 10; i++) {
-            if(*(cache[i].flag) == 0) {
-                idx = i;
-                break;
-            }
-            if(*(cache[i].cnt) > max_cnt) {
-                idx = i;
-                max_cnt = *(cache[i].cnt);
-            }
+        if(*(cache[i].cnt) > max_cnt) {
+            idx = i;
+            max_cnt = *(cache[i].cnt);
         }
-        *(cache[idx].flag) = 1;
-        strcpy(cache[idx].url, url);
-        strcpy(cache[idx].content, buf);
-        *(cache[idx].cnt) = 0;
     }
-    for(int i = 0; i < 10; i++) {
-        (*(cache[i].cnt))++;
-    }
+    /* 해당 index에 cache 작성 */
+    *(cache[idx].flag) = 1;
+    strcpy(cache[idx].url, url);
+    strcpy(cache[idx].content, buf);
+    *(cache[idx].cnt) = 1;
+
     V(&w);
 }
