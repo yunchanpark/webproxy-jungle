@@ -296,6 +296,7 @@ int reader(int connfd, char *url) {
     return return_flag;
 }
 
+/* cache에서 요청한 url의 정보 쓰기 */
 void writer(char *url, char *buf) {
     P(&w);
 
