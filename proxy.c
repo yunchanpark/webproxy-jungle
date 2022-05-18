@@ -40,24 +40,25 @@ int main(int argc, char **argv) {
         exit(1);
     }
     
-    int listenfd, connfd;                  /* listen 식별자, connfd 식별자 */
+    int listenfd, *connfd;                  /* listen 식별자, connfd 식별자 */
     char hostname[MAXLINE], port[MAXLINE]; /* hostname: 접속한 클라이언트 ip, port: 접속한 클라이언트 port */
     socklen_t clientlen;                   /* socklen_t 는 소켓 관련 매개 변수에 사용되는 것으로 길이 및 크기 값에 대한 정의를 내려준다 */
     struct sockaddr_storage clientaddr;    /* 어떤 타입의 소켓 구조체가 들어올지 모르기 때문에 충분히 큰 소켓 구조체로 선언 */
-    // pthread_t tid;
+    pthread_t tid;
 
     /* listenfd: 이 포트에 대한 듣기 소켓 오픈 */
     listenfd = Open_listenfd(argv[1]);
 
     while (1) {
-        clientlen = sizeof(clientaddr);                                                 /* 소켓 구조체 크기 */
-        connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);                       /* 연결 요청 큐에 아무것도 없을 경우 기본적으로 연결이 생길때까지 호출자를 막아둠, 즉 대기 상태 */
+        clientlen = sizeof(clientaddr);                                             /* 소켓 구조체 크기 */
+        connfd = Malloc(sizeof(int));
+        *connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);                       /* 연결 요청 큐에 아무것도 없을 경우 기본적으로 연결이 생길때까지 호출자를 막아둠, 즉 대기 상태 */
         Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0); /* clientaddr: SA 구조체로 형변환, 소켓 정보를 가져옴 */
         printf("Accepted connection from (%s, %s)\n", hostname, port);                  /* 어떤 주소와 포트 번호를 가진 client가 들어왔는지 print */
         
-        // Prhread_create(&tid, NULL, thread, (void *)connfd);
+        Pthread_create(&tid, NULL, thread, connfd);
 
-        doit(connfd);                                                                   /* 트랜잭션 수행 */
+        // doit(connfd);                                                                   /* 트랜잭션 수행 */
         
         /* 연결이 끝났다고 print 하고 식별자(파일 디스크립트)를 닫아줌 */
         // printf("endoffile\n");
@@ -65,12 +66,14 @@ int main(int argc, char **argv) {
     }
 }
 
-// void *thread(void *vargs) {
-//     int connfd = *((int *)vargs);
-//     Pthread_detach(pthread_self());
-//     doit(connfd);
-//     Close(connfd);
-// }
+void *thread(void *vargp) {
+    int connfd = *((int *)vargp);
+    Pthread_detach(pthread_self());
+    free(vargp);
+    doit(connfd);
+    Close(connfd);
+    return NULL;
+}
 
 void doit(int connfd) {
     int end_serverfd;
@@ -149,7 +152,7 @@ void parse_uri(char *uri, char *hostname, char *path, int *port) {
         }
     }
 
-    // /* host명이 없는 경우(브라우저 테스트를 위함) */
+    /* host명이 없는 경우(브라우저 테스트를 위함) */
     // if (strlen(hostname) == 0) {
     //     strcpy(hostname, end_server_host);
     // }
