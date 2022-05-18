@@ -263,6 +263,7 @@ void init_cache() {
 }
 
 /* cache에서 요청한 url 있는지 찾기 */
+/* 세마포어를 이용해서 reader가 먼저 되고 여러 thread가 읽고 있으면 writer는 할 수가 없게 한다. */
 int reader(int connfd, char *url) {
     int return_flag = 0;    /* 캐시에서 찾았으면 1, 못찾으면 0 */
     P(&mutex);              
@@ -297,6 +298,7 @@ int reader(int connfd, char *url) {
 }
 
 /* cache에서 요청한 url의 정보 쓰기 */
+/* 세마포어를 이용해서 writer는 한번 */
 void writer(char *url, char *buf) {
     P(&w);
 
